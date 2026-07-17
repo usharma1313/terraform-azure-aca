@@ -3,23 +3,10 @@ pipeline {
     agent any
 
 
-    environment {
-
-        AZURE_CREDENTIALS = credentials('azure-jenkins-sp')
-
-        ARM_CLIENT_ID       = "${AZURE_CREDENTIALS_USR}"
-        ARM_CLIENT_SECRET   = "${AZURE_CREDENTIALS_PSW}"
-
-        ARM_SUBSCRIPTION_ID = "2297facf-380e-42bd-9369-85795a0b1251"
-        ARM_TENANT_ID       = "84981200-0704-4e2c-82ff-c288b51bc012"
-
-    }
-
-
     stages {
 
 
-        stage('Checkout Code') {
+        stage('Checkout') {
 
             steps {
 
@@ -30,14 +17,18 @@ pipeline {
 
 
 
-        stage('Check Terraform') {
+        stage('Terraform Version Check') {
 
             steps {
 
                 sh '''
-                echo "Checking Terraform installation"
+
+                set -eu
+
+                echo "Checking Terraform version"
 
                 terraform version
+
                 '''
 
             }
@@ -45,31 +36,50 @@ pipeline {
 
 
 
-        stage('Azure Login Validation') {
+
+        stage('Azure Login') {
 
             steps {
 
-                sh '''
-                echo "Testing Azure Service Principal login"
+
+                withCredentials([
+
+                    azureServicePrincipal('azure-jenkins-sp')
+
+                ]) {
 
 
-                az login \
-                --service-principal \
-                -u "\\$ARM_CLIENT_ID" \
-                -p "\\$ARM_CLIENT_SECRET" \
-                -t "\\$ARM_TENANT_ID" >/dev/null
+                    sh '''
+
+                    set -eu
 
 
-                az account set \
-                --subscription "\\$ARM_SUBSCRIPTION_ID"
+                    echo "Logging into Azure"
 
 
-                az account show
+                    az login \
+                    --service-principal \
+                    -u "$AZURE_CLIENT_ID" \
+                    -p "$AZURE_CLIENT_SECRET" \
+                    -t "$AZURE_TENANT_ID" >/dev/null
 
-                '''
+
+
+                    az account set \
+                    --subscription "$AZURE_SUBSCRIPTION_ID"
+
+
+
+                    az account show
+
+
+                    '''
+
+                }
 
             }
         }
+
 
 
 
@@ -79,11 +89,17 @@ pipeline {
             steps {
 
                 sh '''
+
+                set -eu
+
                 terraform init
+
                 '''
 
             }
         }
+
+
 
 
 
@@ -92,7 +108,11 @@ pipeline {
             steps {
 
                 sh '''
+
+                set -eu
+
                 terraform validate
+
                 '''
 
             }
@@ -106,13 +126,36 @@ pipeline {
 
             steps {
 
-                sh '''
-                terraform plan \
-                -out=tfplan
 
-                '''
+                withCredentials([
+
+                    azureServicePrincipal('azure-jenkins-sp')
+
+                ]) {
+
+
+                    sh '''
+
+                    set -eu
+
+
+                    export ARM_CLIENT_ID="$AZURE_CLIENT_ID"
+                    export ARM_CLIENT_SECRET="$AZURE_CLIENT_SECRET"
+                    export ARM_TENANT_ID="$AZURE_TENANT_ID"
+                    export ARM_SUBSCRIPTION_ID="$AZURE_SUBSCRIPTION_ID"
+
+
+
+                    terraform plan \
+                    -out=tfplan
+
+
+                    '''
+
+                }
 
             }
+
         }
 
 
@@ -121,25 +164,51 @@ pipeline {
 
         stage('Terraform Apply') {
 
+
             when {
+
                 branch 'main'
+
             }
 
 
             steps {
 
-                input message: 'Approve Azure Container App deployment?'
+
+                input message: 'Approve Terraform Apply?'
 
 
-                sh '''
 
-                terraform apply \
-                -auto-approve \
-                tfplan
+                withCredentials([
 
-                '''
+                    azureServicePrincipal('azure-jenkins-sp')
+
+                ]) {
+
+
+                    sh '''
+
+                    set -eu
+
+
+                    export ARM_CLIENT_ID="$AZURE_CLIENT_ID"
+                    export ARM_CLIENT_SECRET="$AZURE_CLIENT_SECRET"
+                    export ARM_TENANT_ID="$AZURE_TENANT_ID"
+                    export ARM_SUBSCRIPTION_ID="$AZURE_SUBSCRIPTION_ID"
+
+
+
+                    terraform apply \
+                    -auto-approve \
+                    tfplan
+
+
+                    '''
+
+                }
 
             }
+
         }
 
 
@@ -148,18 +217,23 @@ pipeline {
 
         stage('Terraform Output') {
 
+
             steps {
+
 
                 sh '''
 
-                echo "Deployment Output"
+                echo "Terraform Outputs"
 
                 terraform output
+
 
                 '''
 
             }
+
         }
+
 
     }
 
@@ -170,14 +244,14 @@ pipeline {
 
         success {
 
-            echo "Azure Container App provisioning completed successfully"
+            echo "Azure Container App infrastructure deployed successfully"
 
         }
 
 
         failure {
 
-            echo "Azure Container App provisioning failed"
+            echo "Terraform deployment failed"
 
         }
 
