@@ -2,6 +2,7 @@ pipeline {
 
     agent any
 
+
     environment {
 
         AZURE_CREDENTIALS = credentials('azure-jenkins-sp')
@@ -21,46 +22,22 @@ pipeline {
         stage('Checkout Code') {
 
             steps {
+
                 checkout scm
+
             }
         }
 
 
-        stage('Check Terraform Installation') {
+
+        stage('Check Terraform') {
 
             steps {
 
                 sh '''
-                if command -v terraform >/dev/null 2>&1
-                then
-                    echo "Terraform already installed"
-                    terraform version
+                echo "Checking Terraform installation"
 
-                else
-                    echo "Terraform not found. Installing Terraform..."
-
-                    sudo apt-get update
-
-                    sudo apt-get install -y \
-                    gnupg \
-                    software-properties-common \
-                    curl
-
-                    curl -fsSL https://apt.releases.hashicorp.com/gpg | \
-                    sudo gpg --dearmor \
-                    -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-
-                    echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
-                    https://apt.releases.hashicorp.com \
-                    $(lsb_release -cs) main" | \
-                    sudo tee /etc/apt/sources.list.d/hashicorp.list
-
-                    sudo apt-get update
-
-                    sudo apt-get install -y terraform
-
-                    terraform version
-                fi
+                terraform version
                 '''
 
             }
@@ -68,23 +45,23 @@ pipeline {
 
 
 
-        stage('Azure Login') {
+        stage('Azure Login Validation') {
 
             steps {
 
                 sh '''
+                echo "Testing Azure Service Principal login"
 
-                echo "Logging into Azure"
 
                 az login \
                 --service-principal \
-                -u $ARM_CLIENT_ID \
-                -p $ARM_CLIENT_SECRET \
-                --tenant $ARM_TENANT_ID
+                -u "\\$ARM_CLIENT_ID" \
+                -p "\\$ARM_CLIENT_SECRET" \
+                -t "\\$ARM_TENANT_ID" >/dev/null
 
 
                 az account set \
-                --subscription $ARM_SUBSCRIPTION_ID
+                --subscription "\\$ARM_SUBSCRIPTION_ID"
 
 
                 az account show
@@ -93,6 +70,7 @@ pipeline {
 
             }
         }
+
 
 
 
@@ -109,6 +87,20 @@ pipeline {
 
 
 
+        stage('Terraform Validate') {
+
+            steps {
+
+                sh '''
+                terraform validate
+                '''
+
+            }
+        }
+
+
+
+
 
         stage('Terraform Plan') {
 
@@ -117,10 +109,13 @@ pipeline {
                 sh '''
                 terraform plan \
                 -out=tfplan
+
                 '''
 
             }
         }
+
+
 
 
 
@@ -130,9 +125,11 @@ pipeline {
                 branch 'main'
             }
 
+
             steps {
 
-                input message: 'Deploy Azure Container App?'
+                input message: 'Approve Azure Container App deployment?'
+
 
                 sh '''
 
@@ -147,11 +144,15 @@ pipeline {
 
 
 
+
+
         stage('Terraform Output') {
 
             steps {
 
                 sh '''
+
+                echo "Deployment Output"
 
                 terraform output
 
@@ -166,13 +167,29 @@ pipeline {
 
     post {
 
+
         success {
-            echo "Azure Container App deployment successful"
+
+            echo "Azure Container App provisioning completed successfully"
+
         }
 
 
         failure {
-            echo "Deployment failed"
+
+            echo "Azure Container App provisioning failed"
+
+        }
+
+
+        always {
+
+            sh '''
+
+            az logout || true
+
+            '''
+
         }
 
     }
