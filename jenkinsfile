@@ -1,0 +1,180 @@
+pipeline {
+
+    agent any
+
+    environment {
+
+        AZURE_CREDENTIALS = credentials('azure-jenkins-sp')
+
+        ARM_CLIENT_ID       = "${AZURE_CREDENTIALS_USR}"
+        ARM_CLIENT_SECRET   = "${AZURE_CREDENTIALS_PSW}"
+
+        ARM_SUBSCRIPTION_ID = "YOUR-AZURE-SUBSCRIPTION-ID"
+        ARM_TENANT_ID       = "YOUR-AZURE-TENANT-ID"
+
+    }
+
+
+    stages {
+
+
+        stage('Checkout Code') {
+
+            steps {
+                checkout scm
+            }
+        }
+
+
+        stage('Check Terraform Installation') {
+
+            steps {
+
+                sh '''
+                if command -v terraform >/dev/null 2>&1
+                then
+                    echo "Terraform already installed"
+                    terraform version
+
+                else
+                    echo "Terraform not found. Installing Terraform..."
+
+                    sudo apt-get update
+
+                    sudo apt-get install -y \
+                    gnupg \
+                    software-properties-common \
+                    curl
+
+                    curl -fsSL https://apt.releases.hashicorp.com/gpg | \
+                    sudo gpg --dearmor \
+                    -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+
+                    echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+                    https://apt.releases.hashicorp.com \
+                    $(lsb_release -cs) main" | \
+                    sudo tee /etc/apt/sources.list.d/hashicorp.list
+
+                    sudo apt-get update
+
+                    sudo apt-get install -y terraform
+
+                    terraform version
+                fi
+                '''
+
+            }
+        }
+
+
+
+        stage('Azure Login') {
+
+            steps {
+
+                sh '''
+
+                echo "Logging into Azure"
+
+                az login \
+                --service-principal \
+                -u $ARM_CLIENT_ID \
+                -p $ARM_CLIENT_SECRET \
+                --tenant $ARM_TENANT_ID
+
+
+                az account set \
+                --subscription $ARM_SUBSCRIPTION_ID
+
+
+                az account show
+
+                '''
+
+            }
+        }
+
+
+
+        stage('Terraform Init') {
+
+            steps {
+
+                sh '''
+                terraform init
+                '''
+
+            }
+        }
+
+
+
+
+        stage('Terraform Plan') {
+
+            steps {
+
+                sh '''
+                terraform plan \
+                -out=tfplan
+                '''
+
+            }
+        }
+
+
+
+        stage('Terraform Apply') {
+
+            when {
+                branch 'main'
+            }
+
+            steps {
+
+                input message: 'Deploy Azure Container App?'
+
+                sh '''
+
+                terraform apply \
+                -auto-approve \
+                tfplan
+
+                '''
+
+            }
+        }
+
+
+
+        stage('Terraform Output') {
+
+            steps {
+
+                sh '''
+
+                terraform output
+
+                '''
+
+            }
+        }
+
+    }
+
+
+
+    post {
+
+        success {
+            echo "Azure Container App deployment successful"
+        }
+
+
+        failure {
+            echo "Deployment failed"
+        }
+
+    }
+
+}
