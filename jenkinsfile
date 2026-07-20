@@ -1,273 +1,187 @@
+def terraformSwitcherVersion = "0.13.1275"
+
 pipeline {
 
     agent {
-      label 'jenkins-slave'
-      }
+        label 'jenkins-slave'
+    }
 
+    environment {
+        PATH = "${HOME}/.bin:${PATH}"
+    }
 
     stages {
 
-
         stage('Checkout') {
-
             steps {
-
                 checkout scm
-
             }
         }
 
+        stage('Install Terraform') {
+            steps {
+                sh '''
+                set -eu
 
+                mkdir -p "$HOME/.bin"
+
+                echo "Downloading Terraform Switcher..."
+
+                curl -L \
+                  https://github.com/warrensbox/terraform-switcher/releases/download/${terraformSwitcherVersion}/terraform-switcher_${terraformSwitcherVersion}_linux_amd64.tar.gz \
+                  -o tfswitch.tar.gz
+
+                tar -xzf tfswitch.tar.gz
+
+                chmod +x tfswitch
+                mv tfswitch "$HOME/.bin/tfswitch"
+
+                echo "Installing Terraform version required by configuration..."
+
+                "$HOME/.bin/tfswitch" -b "$HOME/.bin/terraform"
+
+                terraform version
+                '''
+            }
+        }
 
         stage('Terraform Version Check') {
-
             steps {
-
                 sh '''
-
                 set -eu
 
                 echo "Checking Terraform version"
 
                 terraform version
-
                 '''
-
             }
         }
 
-
-
-
         stage('Azure Login') {
-
             steps {
 
-
                 withCredentials([
-
                     azureServicePrincipal('azure-jenkins-sp')
-
                 ]) {
 
-
                     sh '''
-
                     set -eu
-
 
                     echo "Logging into Azure"
 
-
                     az login \
-                    --service-principal \
-                    -u "$AZURE_CLIENT_ID" \
-                    -p "$AZURE_CLIENT_SECRET" \
-                    -t "$AZURE_TENANT_ID" >/dev/null
-
-
+                      --service-principal \
+                      -u "$AZURE_CLIENT_ID" \
+                      -p "$AZURE_CLIENT_SECRET" \
+                      -t "$AZURE_TENANT_ID" >/dev/null
 
                     az account set \
-                    --subscription "$AZURE_SUBSCRIPTION_ID"
-
-
+                      --subscription "$AZURE_SUBSCRIPTION_ID"
 
                     az account show
-
-
                     '''
-
                 }
-
             }
         }
 
-
-
-
-
         stage('Terraform Init') {
-
             steps {
-
                 sh '''
-
                 set -eu
 
                 terraform init
-
                 '''
-
             }
         }
-
-
-
-
 
         stage('Terraform Validate') {
-
             steps {
-
                 sh '''
-
                 set -eu
 
+                terraform fmt -check
+
                 terraform validate
-
                 '''
-
             }
         }
 
-
-
-
-
         stage('Terraform Plan') {
-
             steps {
 
-
                 withCredentials([
-
                     azureServicePrincipal('azure-jenkins-sp')
-
                 ]) {
 
-
                     sh '''
-
                     set -eu
-
 
                     export ARM_CLIENT_ID="$AZURE_CLIENT_ID"
                     export ARM_CLIENT_SECRET="$AZURE_CLIENT_SECRET"
                     export ARM_TENANT_ID="$AZURE_TENANT_ID"
                     export ARM_SUBSCRIPTION_ID="$AZURE_SUBSCRIPTION_ID"
 
-
-
-                    terraform plan \
-                    -out=tfplan
-
-
+                    terraform plan -out=tfplan
                     '''
-
                 }
-
             }
-
         }
-
-
-
-
 
         stage('Terraform Apply') {
 
-
             when {
-
                 branch 'main'
-
             }
-
 
             steps {
 
-
                 input message: 'Approve Terraform Apply?'
 
-
-
                 withCredentials([
-
                     azureServicePrincipal('azure-jenkins-sp')
-
                 ]) {
 
-
                     sh '''
-
                     set -eu
-
 
                     export ARM_CLIENT_ID="$AZURE_CLIENT_ID"
                     export ARM_CLIENT_SECRET="$AZURE_CLIENT_SECRET"
                     export ARM_TENANT_ID="$AZURE_TENANT_ID"
                     export ARM_SUBSCRIPTION_ID="$AZURE_SUBSCRIPTION_ID"
 
-
-
-                    terraform apply \
-                    -auto-approve \
-                    tfplan
-
-
+                    terraform apply -auto-approve tfplan
                     '''
-
                 }
-
             }
-
         }
 
-
-
-
-
         stage('Terraform Output') {
-
-
             steps {
-
-
                 sh '''
+                set -eu
 
                 echo "Terraform Outputs"
 
                 terraform output
-
-
                 '''
-
             }
-
         }
-
-
     }
-
-
 
     post {
 
-
         success {
-
             echo "Azure Container App infrastructure deployed successfully"
-
         }
-
 
         failure {
-
             echo "Terraform deployment failed"
-
         }
-
 
         always {
-
             sh '''
-
             az logout || true
-
             '''
-
         }
-
     }
-
 }
