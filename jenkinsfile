@@ -8,6 +8,7 @@ pipeline {
 
     environment {
         PATH = "${HOME}/.bin:${PATH}"
+        TERRAFORM_SWITCHER_VERSION = "0.13.1275"
     }
 
     stages {
