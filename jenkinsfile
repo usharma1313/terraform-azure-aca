@@ -28,8 +28,9 @@ pipeline {
 
                 echo "Downloading Terraform Switcher..."
 
-                curl -L \
-                  https://github.com/warrensbox/terraform-switcher/releases/download/${terraformSwitcherVersion}/terraform-switcher_${terraformSwitcherVersion}_linux_amd64.tar.gz \
+               
+                  curl -L \
+                https://github.com/warrensbox/terraform-switcher/releases/download/${TERRAFORM_SWITCHER_VERSION}/terraform-switcher_${TERRAFORM_SWITCHER_VERSION}_linux_amd64.tar.gz \
                   -o tfswitch.tar.gz
 
                 tar -xzf tfswitch.tar.gz
