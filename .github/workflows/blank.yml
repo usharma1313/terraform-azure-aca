@@ -1,0 +1,133 @@
+name: Terraform Azure Deployment
+
+on:
+  push:
+    branches:
+      - develop
+      - stage
+      - main
+
+  pull_request:
+    branches:
+      - develop
+      - stage
+      - main
+
+permissions:
+  contents: read
+
+env:
+  TERRAFORM_SWITCHER_VERSION: "0.13.1275"
+
+jobs:
+
+  terraform:
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: ${{ github.ref_name }}
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+
+      - name: Install Terraform Switcher
+        shell: bash
+        run: |
+          set -eu
+
+          mkdir -p "$HOME/.bin"
+
+          echo "Downloading Terraform Switcher..."
+
+          curl -L \
+            https://github.com/warrensbox/terraform-switcher/releases/download/${TERRAFORM_SWITCHER_VERSION}/terraform-switcher_${TERRAFORM_SWITCHER_VERSION}_linux_amd64.tar.gz \
+            -o tfswitch.tar.gz
+
+          tar -xzf tfswitch.tar.gz
+
+          chmod +x tfswitch
+
+          mv tfswitch "$HOME/.bin/tfswitch"
+
+          echo "$HOME/.bin" >> $GITHUB_PATH
+
+
+      - name: Install Terraform Version
+        shell: bash
+        run: |
+          set -eu
+
+          echo "Installing Terraform version required by configuration"
+
+          "$HOME/.bin/tfswitch" -b "$HOME/.bin/terraform"
+
+          echo "$HOME/.bin" >> $GITHUB_PATH
+
+          terraform version
+
+
+      - name: Terraform Version Check
+        run: |
+          terraform version
+
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+            }
+
+
+      - name: Terraform Init
+        run: |
+          terraform init
+
+
+      - name: Terraform Validate
+        run: |
+          terraform fmt -check
+          terraform validate
+
+
+      - name: Terraform Plan
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+        run: |
+          terraform plan -out=tfplan
+
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main'
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+        run: |
+          terraform apply -auto-approve tfplan
+
+
+      - name: Terraform Output
+        run: |
+          echo "Terraform Outputs"
+          terraform output
+
+
+      - name: Azure Logout
+        if: always()
+        run: |
+          az logout || true
