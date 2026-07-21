@@ -1,9 +1,10 @@
+
 name: Terraform Azure Deployment
 
 on:
   push:
     branches:
-      - develop
+      - develop 
       - stage
       - main
 
